@@ -1,9 +1,22 @@
 use image_compare::Similarity;
-use std::{collections::HashSet, env, fmt::Display, fs, path::PathBuf, process};
+use std::{collections::HashSet, env, fmt::Display, fs, io::Write, path::PathBuf, process};
 use walkdir::WalkDir;
 use yansi::Paint;
 
 const IMAGE_EXTENSIONS: &[&str] = &["gif", "jpg", "jpeg", "png", "webp"];
+const GENERATE_REPORT: bool = true;
+const REPORT_PATH: &str = "./imdirdiff-out";
+
+enum Diff {
+    OnlyInA,
+    OnlyInB,
+    Different { similarity: f64 },
+}
+
+struct DiffResult {
+    diff: Diff,
+    path: PathBuf,
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -28,12 +41,24 @@ fn main() {
     let images_a = relative_image_paths(&path_a);
     let images_b = relative_image_paths(&path_b);
 
+    let mut results = vec![];
+
     for subpath in images_a.difference(&images_b) {
-        println!("[{}] {}", Paint::red("-"), subpath.display());
+        let result = DiffResult {
+            path: subpath.clone(),
+            diff: Diff::OnlyInA,
+        };
+        print_result(&result);
+        results.push(result);
     }
 
     for subpath in images_b.difference(&images_a) {
-        println!("[{}] {}", Paint::green("+"), subpath.display());
+        let result = DiffResult {
+            path: subpath.clone(),
+            diff: Diff::OnlyInB,
+        };
+        print_result(&result);
+        results.push(result);
     }
 
     for subpath in images_a.intersection(&images_b) {
@@ -49,10 +74,136 @@ fn main() {
             Ok(r) => r,
         };
 
+        if GENERATE_REPORT {
+            if let Err(e) = copy_report_image(&image_path_a, subpath, "a") {
+                eprintln!("Error copying report image: {}", e);
+                process::exit(1);
+            }
+            if let Err(e) = copy_report_image(&image_path_b, subpath, "b") {
+                eprintln!("Error copying report image: {}", e);
+                process::exit(1);
+            }
+
+            let image_path_diff: PathBuf =
+                [PathBuf::from(REPORT_PATH), "diff".into(), subpath.clone()]
+                    .iter()
+                    .collect();
+
+            if let Err(e) = fs::create_dir_all(image_path_diff.clone().with_file_name("")) {
+                eprintln!("Error creating diff image: {}", e);
+                process::exit(1);
+            }
+
+            if let Err(e) = result.image.to_color_map().save(image_path_diff.clone()) {
+                eprintln!("{}: {}", e, image_path_diff.display());
+                process::exit(1);
+            }
+        }
+
         if result.score < 1.0 {
-            println!("[{}] {}", Paint::yellow("≠"), subpath.display());
+            let result = DiffResult {
+                diff: Diff::Different {
+                    similarity: result.score,
+                },
+                path: subpath.clone(),
+            };
+            print_result(&result);
+            results.push(result);
         }
     }
+
+    if let Err(e) = generate_report(&results) {
+        eprintln!("Error generating report: {}", e);
+        process::exit(1);
+    }
+}
+
+fn print_result(result: &DiffResult) {
+    match result.diff {
+        Diff::OnlyInA => {
+            println!("[{}] {}", Paint::red("-"), result.path.display());
+        }
+        Diff::OnlyInB => {
+            println!("[{}] {}", Paint::green("+"), result.path.display());
+        }
+        Diff::Different {
+            similarity: _similarity,
+        } => {
+            println!("[{}] {}", Paint::yellow("≠"), result.path.display());
+        }
+        Diff::Same => {}
+    }
+}
+
+fn copy_report_image(
+    path: &PathBuf,
+    subpath: &PathBuf,
+    prefix: &str,
+) -> Result<(), ImDirDiffError> {
+    let report_image_a: PathBuf = [PathBuf::from(REPORT_PATH), prefix.into(), subpath.clone()]
+        .iter()
+        .collect();
+    fs::create_dir_all(report_image_a.clone().with_file_name(""))
+        .map_err(ImDirDiffError::ReportIoError)?;
+    fs::copy(path, report_image_a).map_err(ImDirDiffError::ReportIoError)?;
+
+    Ok(())
+}
+
+fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
+    let index_path: PathBuf = [PathBuf::from(REPORT_PATH), "index.html".into()]
+        .iter()
+        .collect();
+    let mut report = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(index_path)
+        .map_err(ImDirDiffError::ReportIoError)?;
+
+    write!(
+        &mut report,
+        "<style>img {{ max-height: 80px; }} body {{ columns: 3; }}</style>"
+    )
+    .map_err(ImDirDiffError::ReportIoError)?;
+
+    for result in results {
+        match result.diff {
+            Diff::OnlyInA => {
+                println!("[{}] {}", Paint::red("-"), result.path.display());
+            }
+            Diff::OnlyInB => {
+                println!("[{}] {}", Paint::green("+"), result.path.display());
+            }
+            Diff::Different {
+                similarity: _similarity,
+            } => {
+                println!("[{}] {}", Paint::yellow("≠"), result.path.display());
+                write!(
+                    &mut report,
+                    "<div>
+                        {}
+                        <div>
+                            <a href=\"a/{}\"><img loading=\"lazy\" src=\"a/{}\"></a>
+                            <a href=\"b/{}\"><img loading=\"lazy\" src=\"b/{}\"></a>
+                            <a href=\"diff/{}\"><img loading=\"lazy\" src=\"diff/{}\"></a>
+                        </div>
+                    </div>",
+                    result.path.display(),
+                    result.path.display(),
+                    result.path.display(),
+                    result.path.display(),
+                    result.path.display(),
+                    result.path.display(),
+                    result.path.display(),
+                )
+                .map_err(ImDirDiffError::ReportIoError)?;
+            }
+            Diff::Same => {}
+        }
+    }
+
+    Ok(())
 }
 
 fn compare(image_path_a: &PathBuf, image_path_b: &PathBuf) -> Result<Similarity, ImDirDiffError> {
@@ -102,6 +253,7 @@ enum ImDirDiffError {
     DirIoError(std::io::Error),
     ImageError(image::ImageError),
     CompareError(image_compare::CompareError),
+    ReportIoError(std::io::Error),
 }
 
 impl Display for ImDirDiffError {
@@ -111,6 +263,7 @@ impl Display for ImDirDiffError {
             Self::DirIoError(ref e) => write!(f, "{}", e),
             Self::ImageError(ref e) => write!(f, "{}", e),
             Self::CompareError(ref e) => write!(f, "{}", e),
+            Self::ReportIoError(ref e) => write!(f, "{}", e),
         }
     }
 }
