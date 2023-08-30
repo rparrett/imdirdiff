@@ -2,12 +2,6 @@
 
 A tool for comparing two directories full of image files.
 
-## Install
-
-```bash
-cargo install imdirdiff
-```
-
 ## Usage
 
 ```bash
@@ -23,7 +17,7 @@ b/different.png
 b/b_only.png
 b/c/recursive.png
 
-$ imdirdiff a b
+$ cargo run --release a b
 [-] a_only.png
 [+] b_only.png
 [≠] different.png
