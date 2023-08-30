@@ -137,11 +137,11 @@ fn print_result(result: &DiffResult) {
 }
 
 fn copy_report_image(path: &Path, subpath: &Path, prefix: &Path) -> Result<(), ImDirDiffError> {
-    let report_image_a: PathBuf = [Path::new(REPORT_PATH), prefix, subpath].iter().collect();
+    let report_image: PathBuf = [Path::new(REPORT_PATH), prefix, subpath].iter().collect();
 
-    fs::create_dir_all(report_image_a.clone().with_file_name(""))
+    fs::create_dir_all(report_image.clone().with_file_name(""))
         .map_err(ImDirDiffError::ReportIoError)?;
-    fs::copy(path, report_image_a).map_err(ImDirDiffError::ReportIoError)?;
+    fs::copy(path, report_image).map_err(ImDirDiffError::ReportIoError)?;
 
     Ok(())
 }
@@ -201,12 +201,12 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
     Ok(())
 }
 
-fn compare(image_path_a: &Path, image_path_b: &Path) -> Result<Similarity, ImDirDiffError> {
-    let image_a = image::open(image_path_a)
+fn compare(path_a: &Path, path_b: &Path) -> Result<Similarity, ImDirDiffError> {
+    let image_a = image::open(path_a)
         .map_err(ImDirDiffError::ImageError)?
         .into_rgb8();
 
-    let image_b = image::open(image_path_b)
+    let image_b = image::open(path_b)
         .map_err(ImDirDiffError::ImageError)?
         .into_rgb8();
 
