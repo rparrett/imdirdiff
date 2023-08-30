@@ -1,5 +1,7 @@
 use image_compare::Similarity;
-use std::{collections::HashSet, env, fmt::Display, fs, io::Write, path::PathBuf, process};
+use std::{
+    collections::HashSet, env, fmt::Display, fs, io::Write, path::Path, path::PathBuf, process,
+};
 use walkdir::WalkDir;
 use yansi::Paint;
 
@@ -62,8 +64,8 @@ fn main() {
     }
 
     for subpath in images_a.intersection(&images_b) {
-        let image_path_a = [path_a.clone(), subpath.clone()].iter().collect();
-        let image_path_b = [path_b.clone(), subpath.clone()].iter().collect();
+        let image_path_a: PathBuf = [path_a.as_path(), subpath].iter().collect();
+        let image_path_b: PathBuf = [path_b.as_path(), subpath].iter().collect();
 
         let result = compare(&image_path_a, &image_path_b);
         let result = match result {
@@ -75,11 +77,11 @@ fn main() {
         };
 
         if GENERATE_REPORT {
-            if let Err(e) = copy_report_image(&image_path_a, subpath, "a") {
+            if let Err(e) = copy_report_image(&image_path_a, subpath, Path::new("a")) {
                 eprintln!("Error copying report image: {}", e);
                 process::exit(1);
             }
-            if let Err(e) = copy_report_image(&image_path_b, subpath, "b") {
+            if let Err(e) = copy_report_image(&image_path_b, subpath, Path::new("b")) {
                 eprintln!("Error copying report image: {}", e);
                 process::exit(1);
             }
@@ -134,14 +136,9 @@ fn print_result(result: &DiffResult) {
     }
 }
 
-fn copy_report_image(
-    path: &PathBuf,
-    subpath: &PathBuf,
-    prefix: &str,
-) -> Result<(), ImDirDiffError> {
-    let report_image_a: PathBuf = [PathBuf::from(REPORT_PATH), prefix.into(), subpath.clone()]
-        .iter()
-        .collect();
+fn copy_report_image(path: &Path, subpath: &Path, prefix: &Path) -> Result<(), ImDirDiffError> {
+    let report_image_a: PathBuf = [Path::new(REPORT_PATH), prefix, subpath].iter().collect();
+
     fs::create_dir_all(report_image_a.clone().with_file_name(""))
         .map_err(ImDirDiffError::ReportIoError)?;
     fs::copy(path, report_image_a).map_err(ImDirDiffError::ReportIoError)?;
@@ -204,7 +201,7 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
     Ok(())
 }
 
-fn compare(image_path_a: &PathBuf, image_path_b: &PathBuf) -> Result<Similarity, ImDirDiffError> {
+fn compare(image_path_a: &Path, image_path_b: &Path) -> Result<Similarity, ImDirDiffError> {
     let image_a = image::open(image_path_a)
         .map_err(ImDirDiffError::ImageError)?
         .into_rgb8();
@@ -216,7 +213,7 @@ fn compare(image_path_a: &PathBuf, image_path_b: &PathBuf) -> Result<Similarity,
     image_compare::rgb_hybrid_compare(&image_a, &image_b).map_err(ImDirDiffError::CompareError)
 }
 
-fn relative_image_paths(dir_path: &PathBuf) -> HashSet<PathBuf> {
+fn relative_image_paths(dir_path: &Path) -> HashSet<PathBuf> {
     WalkDir::new(dir_path)
         .follow_links(true)
         .into_iter()
@@ -237,7 +234,7 @@ fn relative_image_paths(dir_path: &PathBuf) -> HashSet<PathBuf> {
         .collect()
 }
 
-fn check_dir(dir_path: &PathBuf) -> Result<(), ImDirDiffError> {
+fn check_dir(dir_path: &Path) -> Result<(), ImDirDiffError> {
     let meta = fs::metadata(dir_path).map_err(ImDirDiffError::DirIoError)?;
     if !meta.is_dir() {
         return Err(ImDirDiffError::NotADirectory);
