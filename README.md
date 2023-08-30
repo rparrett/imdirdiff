@@ -29,8 +29,3 @@ $ imdirdiff a b
 [≠] different.png
 [≠] c/recursive.png
 ```
-
-## TODO
-
-- Save output from `image-compare`.
-- Generate a nice html report with image comparison tools.
