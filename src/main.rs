@@ -131,7 +131,6 @@ fn print_result(result: &DiffResult) {
         } => {
             println!("[{}] {}", Paint::yellow("≠"), result.path.display());
         }
-        Diff::Same => {}
     }
 }
 
@@ -199,7 +198,6 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
                 )
                 .map_err(ImDirDiffError::ReportIoError)?;
             }
-            Diff::Same => {}
         }
     }
 
