@@ -1,3 +1,4 @@
+use image::imageops::FilterType;
 use image_compare::Similarity;
 use std::{
     collections::HashSet, env, fmt::Display, fs, io::Write, path::Path, path::PathBuf, process,
@@ -8,6 +9,9 @@ use yansi::Paint;
 const IMAGE_EXTENSIONS: &[&str] = &["gif", "jpg", "jpeg", "png", "webp"];
 const GENERATE_REPORT: bool = true;
 const REPORT_PATH: &str = "./imdirdiff-out";
+const THUMB_WIDTH: u32 = u32::MAX;
+const THUMB_HEIGHT: u32 = 80;
+const THUMB_EXTENSION: &str = "sm.jpg";
 
 enum Diff {
     OnlyInA,
@@ -96,8 +100,17 @@ fn main() {
                 process::exit(1);
             }
 
-            if let Err(e) = result.image.to_color_map().save(image_path_diff.clone()) {
+            let color_map = result.image.to_color_map();
+            if let Err(e) = color_map.save(image_path_diff.clone()) {
                 eprintln!("{}: {}", e, image_path_diff.display());
+                process::exit(1);
+            }
+
+            let thumb_result = color_map
+                .resize(THUMB_WIDTH, THUMB_HEIGHT, FilterType::Triangle)
+                .save(image_path_diff.with_extension(THUMB_EXTENSION));
+            if let Err(e) = thumb_result {
+                eprintln!("Error creating diff thumbnail: {}", e);
                 process::exit(1);
             }
         }
@@ -141,7 +154,15 @@ fn copy_report_image(path: &Path, subpath: &Path, prefix: &Path) -> Result<(), I
 
     fs::create_dir_all(report_image.clone().with_file_name(""))
         .map_err(ImDirDiffError::ReportIoError)?;
-    fs::copy(path, report_image).map_err(ImDirDiffError::ReportIoError)?;
+    fs::copy(path, &report_image).map_err(ImDirDiffError::ReportIoError)?;
+
+    let thumb_path = report_image.with_extension(THUMB_EXTENSION);
+
+    let image = image::open(report_image).map_err(ImDirDiffError::ReportImageError)?;
+    image.resize(u32::MAX, 80, FilterType::Triangle);
+    image
+        .save(thumb_path)
+        .map_err(ImDirDiffError::ReportImageError)?;
 
     Ok(())
 }
@@ -164,6 +185,10 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
     .map_err(ImDirDiffError::ReportIoError)?;
 
     for result in results {
+        let thumb = result.path.with_extension(THUMB_EXTENSION);
+        let thumb = thumb.display();
+        let full_size = result.path.display();
+
         match result.diff {
             Diff::OnlyInA => {
                 println!("[{}] {}", Paint::red("-"), result.path.display());
@@ -178,20 +203,13 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
                 write!(
                     &mut report,
                     "<div>
-                        {}
+                        {full_size}
                         <div>
-                            <a href=\"a/{}\"><img loading=\"lazy\" src=\"a/{}\"></a>
-                            <a href=\"b/{}\"><img loading=\"lazy\" src=\"b/{}\"></a>
-                            <a href=\"diff/{}\"><img loading=\"lazy\" src=\"diff/{}\"></a>
+                            <a href=\"a/{full_size}\"><img loading=\"lazy\" src=\"a/{thumb}\"></a>
+                            <a href=\"b/{full_size}\"><img loading=\"lazy\" src=\"b/{thumb}\"></a>
+                            <a href=\"diff/{full_size}\"><img loading=\"lazy\" src=\"diff/{thumb}\"></a>
                         </div>
                     </div>",
-                    result.path.display(),
-                    result.path.display(),
-                    result.path.display(),
-                    result.path.display(),
-                    result.path.display(),
-                    result.path.display(),
-                    result.path.display(),
                 )
                 .map_err(ImDirDiffError::ReportIoError)?;
             }
@@ -249,6 +267,7 @@ enum ImDirDiffError {
     ImageError(image::ImageError),
     CompareError(image_compare::CompareError),
     ReportIoError(std::io::Error),
+    ReportImageError(image::ImageError),
 }
 
 impl Display for ImDirDiffError {
@@ -259,6 +278,7 @@ impl Display for ImDirDiffError {
             Self::ImageError(ref e) => write!(f, "{}", e),
             Self::CompareError(ref e) => write!(f, "{}", e),
             Self::ReportIoError(ref e) => write!(f, "{}", e),
+            Self::ReportImageError(ref e) => write!(f, "{}", e),
         }
     }
 }
