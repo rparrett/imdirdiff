@@ -90,18 +90,17 @@ fn main() {
                 process::exit(1);
             }
 
-            let image_path_diff: PathBuf =
-                [PathBuf::from(REPORT_PATH), "diff".into(), subpath.clone()]
-                    .iter()
-                    .collect();
+            let image_path_diff: PathBuf = [Path::new(REPORT_PATH), Path::new("diff"), subpath]
+                .iter()
+                .collect();
 
-            if let Err(e) = fs::create_dir_all(image_path_diff.clone().with_file_name("")) {
+            if let Err(e) = fs::create_dir_all(image_path_diff.with_file_name("")) {
                 eprintln!("Error creating diff image: {}", e);
                 process::exit(1);
             }
 
             let color_map = result.image.to_color_map();
-            if let Err(e) = color_map.save(image_path_diff.clone()) {
+            if let Err(e) = color_map.save(&image_path_diff) {
                 eprintln!("{}: {}", e, image_path_diff.display());
                 process::exit(1);
             }
@@ -152,8 +151,7 @@ fn print_result(result: &DiffResult) {
 fn copy_report_image(path: &Path, subpath: &Path, prefix: &Path) -> Result<(), ImDirDiffError> {
     let report_image: PathBuf = [Path::new(REPORT_PATH), prefix, subpath].iter().collect();
 
-    fs::create_dir_all(report_image.clone().with_file_name(""))
-        .map_err(ImDirDiffError::ReportIoError)?;
+    fs::create_dir_all(report_image.with_file_name("")).map_err(ImDirDiffError::ReportIoError)?;
     fs::copy(path, &report_image).map_err(ImDirDiffError::ReportIoError)?;
 
     let thumb_path = report_image.with_extension(THUMB_EXTENSION);
