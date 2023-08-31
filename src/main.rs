@@ -1,4 +1,4 @@
-use image::imageops::FilterType;
+use image::imageops::{overlay, FilterType};
 use image_compare::Similarity;
 use std::{
     collections::HashSet, env, fmt::Display, fs, io::Write, path::Path, path::PathBuf, process,
@@ -74,7 +74,7 @@ fn main() {
         let result = compare(&image_path_a, &image_path_b);
         let result = match result {
             Err(e) => {
-                eprintln!("Error comparing images: {}", e);
+                eprintln!("Error comparing {} {}", subpath.display(), e);
                 process::exit(1);
             }
             Ok(r) => r,
@@ -233,6 +233,19 @@ fn compare(path_a: &Path, path_b: &Path) -> Result<Similarity, ImDirDiffError> {
     let image_b = image::open(path_b)
         .map_err(ImDirDiffError::ImageError)?
         .into_rgb8();
+
+    if image_a.dimensions() != image_b.dimensions() {
+        let max_width = image_a.width().max(image_b.width());
+        let max_height = image_a.height().max(image_b.height());
+
+        let mut enlarged_a = image::ImageBuffer::new(max_width, max_height);
+        overlay(&mut enlarged_a, &image_a, 0, 0);
+        let mut enlarged_b = image::ImageBuffer::new(max_width, max_height);
+        overlay(&mut enlarged_b, &image_b, 0, 0);
+
+        return image_compare::rgb_hybrid_compare(&enlarged_a, &enlarged_b)
+            .map_err(ImDirDiffError::CompareError);
+    }
 
     image_compare::rgb_hybrid_compare(&image_a, &image_b).map_err(ImDirDiffError::CompareError)
 }
