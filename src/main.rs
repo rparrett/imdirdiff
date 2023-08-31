@@ -178,7 +178,7 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
 
     write!(
         &mut report,
-        "<style>img {{ max-height: 80px; }} body {{ columns: 3; font-family: monospace; }}</style>"
+        "<style>img {{ max-height: 80px; }} body {{ columns: 3; font-family: monospace; }} span.x {{ color: red; cursor:pointer; }}</style>"
     )
     .map_err(ImDirDiffError::ReportIoError)?;
 
@@ -201,7 +201,7 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
                 write!(
                     &mut report,
                     "<div>
-                        {full_size}
+                        {full_size} <span class=\"x\">x</span>
                         <div>
                             <a href=\"a/{full_size}\"><img loading=\"lazy\" src=\"a/{thumb}\"></a>
                             <a href=\"b/{full_size}\"><img loading=\"lazy\" src=\"b/{thumb}\"></a>
@@ -213,6 +213,19 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
             }
         }
     }
+
+    write!(
+        &mut report,
+        "<script>
+            (function() {{
+                let xs = document.querySelectorAll('.x');
+                xs.forEach(x => x.addEventListener('click', function(e) {{
+                    e.currentTarget.parentNode.remove()
+                }}))
+            }})();
+        </script>"
+    )
+    .map_err(ImDirDiffError::ReportIoError)?;
 
     Ok(())
 }
