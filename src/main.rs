@@ -178,7 +178,7 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
 
     write!(
         &mut report,
-        "<style>img {{ max-height: 80px; }} body {{ columns: 3; font-family: monospace; }} span.x {{ color: red; cursor:pointer; }} div.diff {{ break-inside: avoid; }}</style>"
+        "<style>img {{ max-height: 80px; padding-top: 3px }} body {{ columns: 3; font-family: monospace; }} span.x {{ color: red; cursor:pointer; }} div.diff {{ break-inside: avoid; }}</style>"
     )
     .map_err(ImDirDiffError::ReportIoError)?;
 
