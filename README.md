@@ -22,4 +22,6 @@ $ cargo run --release a b
 [+] b_only.png
 [≠] different.png
 [≠] c/recursive.png
+
+$ open imdirdiff-out/index.html
 ```
