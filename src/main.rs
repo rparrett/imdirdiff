@@ -178,7 +178,7 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
 
     write!(
         &mut report,
-        "<style>img {{ max-height: 80px; }} body {{ columns: 3; font-family: monospace; }} span.x {{ color: red; cursor:pointer; }}</style>"
+        "<style>img {{ max-height: 80px; }} body {{ columns: 3; font-family: monospace; }} span.x {{ color: red; cursor:pointer; }} div.diff {{ break-inside: avoid; }}</style>"
     )
     .map_err(ImDirDiffError::ReportIoError)?;
 
@@ -200,7 +200,7 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
                 println!("[{}] {}", Paint::yellow("≠"), result.path.display());
                 write!(
                     &mut report,
-                    "<div>
+                    "<div class=\"diff\">
                         {full_size} <span class=\"x\">x</span>
                         <div>
                             <a href=\"a/{full_size}\"><img loading=\"lazy\" src=\"a/{thumb}\"></a>
