@@ -178,7 +178,8 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
 
     write!(
         &mut report,
-        "<style>img {{ max-height: 80px; padding-top: 3px }} body {{ columns: 3; font-family: monospace; }} span.x {{ color: red; cursor:pointer; }} div.diff {{ break-inside: avoid; }}</style>"
+        "<style>{}</style>",
+        include_str!("../templates/style.css")
     )
     .map_err(ImDirDiffError::ReportIoError)?;
 
@@ -216,14 +217,8 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
 
     write!(
         &mut report,
-        "<script>
-            (function() {{
-                let xs = document.querySelectorAll('.x');
-                xs.forEach(x => x.addEventListener('click', function(e) {{
-                    e.currentTarget.parentNode.remove()
-                }}))
-            }})();
-        </script>"
+        "<script>{}</script>",
+        include_str!("../templates/script.js")
     )
     .map_err(ImDirDiffError::ReportIoError)?;
 
