@@ -3,12 +3,15 @@ img {
   padding-top: 3px;
 }
 body {
-  columns: 3;
   font-family: monospace;
 }
 span.x {
   color: red;
   cursor: pointer;
+}
+div.diffs {
+  margin-top: 10px;
+  columns: 3;
 }
 div.diff {
   break-inside: avoid;

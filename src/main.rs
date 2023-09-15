@@ -183,37 +183,59 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
     )
     .map_err(ImDirDiffError::ReportIoError)?;
 
+    write!(&mut report, "<div>").map_err(ImDirDiffError::ReportIoError)?;
+
     for result in results {
+        match result.diff {
+            Diff::OnlyInA => {
+                write!(
+                    &mut report,
+                    "<div>{} is only present in A</div>",
+                    result.path.display()
+                )
+                .map_err(ImDirDiffError::ReportIoError)?;
+            }
+            Diff::OnlyInB => {
+                write!(
+                    &mut report,
+                    "<div>{} is only present in B</div>",
+                    result.path.display()
+                )
+                .map_err(ImDirDiffError::ReportIoError)?;
+            }
+            _ => {}
+        }
+    }
+
+    write!(&mut report, "</div><div class=\"diffs\">").map_err(ImDirDiffError::ReportIoError)?;
+
+    for result in results {
+        let Diff::Different {
+            similarity: _similarity,
+        } = result.diff
+        else {
+            continue;
+        };
+
         let thumb = result.path.with_extension(THUMB_EXTENSION);
         let thumb = thumb.display();
         let full_size = result.path.display();
 
-        match result.diff {
-            Diff::OnlyInA => {
-                println!("[{}] {}", Paint::red("-"), result.path.display());
-            }
-            Diff::OnlyInB => {
-                println!("[{}] {}", Paint::green("+"), result.path.display());
-            }
-            Diff::Different {
-                similarity: _similarity,
-            } => {
-                println!("[{}] {}", Paint::yellow("≠"), result.path.display());
-                write!(
-                    &mut report,
-                    "<div class=\"diff\">
-                        {full_size} <span class=\"x\">x</span>
-                        <div>
-                            <a href=\"a/{full_size}\"><img loading=\"lazy\" src=\"a/{thumb}\"></a>
-                            <a href=\"b/{full_size}\"><img loading=\"lazy\" src=\"b/{thumb}\"></a>
-                            <a href=\"diff/{full_size}\"><img loading=\"lazy\" src=\"diff/{thumb}\"></a>
-                        </div>
-                    </div>",
-                )
-                .map_err(ImDirDiffError::ReportIoError)?;
-            }
-        }
+        write!(
+            &mut report,
+            "<div class=\"diff\">
+                {full_size} <span class=\"x\">x</span>
+                <div>
+                    <a href=\"a/{full_size}\"><img loading=\"lazy\" src=\"a/{thumb}\"></a>
+                    <a href=\"b/{full_size}\"><img loading=\"lazy\" src=\"b/{thumb}\"></a>
+                    <a href=\"diff/{full_size}\"><img loading=\"lazy\" src=\"diff/{thumb}\"></a>
+                </div>
+            </div>",
+        )
+        .map_err(ImDirDiffError::ReportIoError)?;
     }
+
+    write!(&mut report, "</div>").map_err(ImDirDiffError::ReportIoError)?;
 
     write!(
         &mut report,
