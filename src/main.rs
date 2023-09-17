@@ -1,7 +1,14 @@
+use argh::FromArgs;
 use image::imageops::{overlay, FilterType};
-use image_compare::Similarity;
+use regex::Regex;
 use std::{
-    collections::HashSet, env, fmt::Display, fs, io::Write, path::Path, path::PathBuf, process,
+    collections::HashSet,
+    fmt::Display,
+    fs,
+    io::Write,
+    path::Path,
+    path::PathBuf,
+    process::{self, Command},
 };
 use walkdir::WalkDir;
 use yansi::Paint;
@@ -12,6 +19,21 @@ const REPORT_PATH: &str = "./imdirdiff-out";
 const THUMB_WIDTH: u32 = u32::MAX;
 const THUMB_HEIGHT: u32 = 80;
 const THUMB_EXTENSION: &str = "sm.jpg";
+
+static RE_FLIP: once_cell::sync::Lazy<Regex> =
+    once_cell::sync::Lazy::new(|| Regex::new(r"Mean: ([\d.]+)").unwrap());
+
+#[derive(FromArgs)]
+/// Reach new heights.
+struct Args {
+    /// use nvidia's flip (https://github.com/NVlabs/flip) instead of image_compare
+    #[argh(switch)]
+    flip: bool,
+    #[argh(positional)]
+    a: String,
+    #[argh(positional)]
+    b: String,
+}
 
 enum Diff {
     OnlyInA,
@@ -25,14 +47,10 @@ struct DiffResult {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
-        eprintln!("Usage: imdirdiff dir1 dir2");
-        process::exit(1);
-    }
+    let args: Args = argh::from_env();
 
-    let path_a = PathBuf::from(&args[1]);
-    let path_b = PathBuf::from(&args[2]);
+    let path_a = PathBuf::from(&args.a);
+    let path_b = PathBuf::from(&args.b);
 
     if let Err(e) = check_dir(&path_a) {
         eprintln!("Error reading {}: {}", path_a.display(), e);
@@ -68,11 +86,13 @@ fn main() {
     }
 
     for subpath in images_a.intersection(&images_b) {
-        let image_path_a: PathBuf = [path_a.as_path(), subpath].iter().collect();
-        let image_path_b: PathBuf = [path_b.as_path(), subpath].iter().collect();
+        let similarity = if args.flip {
+            compare_flip(&path_a, &path_b, subpath)
+        } else {
+            compare(&path_a, &path_b, subpath)
+        };
 
-        let result = compare(&image_path_a, &image_path_b);
-        let result = match result {
+        let similarity = match similarity {
             Err(e) => {
                 eprintln!("Error comparing {} {}", subpath.display(), e);
                 process::exit(1);
@@ -80,45 +100,9 @@ fn main() {
             Ok(r) => r,
         };
 
-        if GENERATE_REPORT {
-            if let Err(e) = copy_report_image(&image_path_a, subpath, Path::new("a")) {
-                eprintln!("Error copying report image: {}", e);
-                process::exit(1);
-            }
-            if let Err(e) = copy_report_image(&image_path_b, subpath, Path::new("b")) {
-                eprintln!("Error copying report image: {}", e);
-                process::exit(1);
-            }
-
-            let image_path_diff: PathBuf = [Path::new(REPORT_PATH), Path::new("diff"), subpath]
-                .iter()
-                .collect();
-
-            if let Err(e) = fs::create_dir_all(image_path_diff.with_file_name("")) {
-                eprintln!("Error creating diff image: {}", e);
-                process::exit(1);
-            }
-
-            let color_map = result.image.to_color_map();
-            if let Err(e) = color_map.save(&image_path_diff) {
-                eprintln!("{}: {}", e, image_path_diff.display());
-                process::exit(1);
-            }
-
-            let thumb_result = color_map
-                .resize(THUMB_WIDTH, THUMB_HEIGHT, FilterType::Triangle)
-                .save(image_path_diff.with_extension(THUMB_EXTENSION));
-            if let Err(e) = thumb_result {
-                eprintln!("Error creating diff thumbnail: {}", e);
-                process::exit(1);
-            }
-        }
-
-        if result.score < 1.0 {
+        if similarity < 1.0 {
             let result = DiffResult {
-                diff: Diff::Different {
-                    similarity: result.score,
-                },
+                diff: Diff::Different { similarity },
                 path: subpath.clone(),
             };
             print_result(&result);
@@ -247,16 +231,19 @@ fn generate_report(results: &Vec<DiffResult>) -> Result<(), ImDirDiffError> {
     Ok(())
 }
 
-fn compare(path_a: &Path, path_b: &Path) -> Result<Similarity, ImDirDiffError> {
-    let image_a = image::open(path_a)
+fn compare(path_a: &Path, path_b: &Path, subpath: &Path) -> Result<f64, ImDirDiffError> {
+    let image_path_a: PathBuf = [path_a, subpath].iter().collect();
+    let image_path_b: PathBuf = [path_b, subpath].iter().collect();
+
+    let image_a = image::open(&image_path_a)
         .map_err(ImDirDiffError::ImageError)?
         .into_rgb8();
 
-    let image_b = image::open(path_b)
+    let image_b = image::open(&image_path_b)
         .map_err(ImDirDiffError::ImageError)?
         .into_rgb8();
 
-    if image_a.dimensions() != image_b.dimensions() {
+    let similarity = if image_a.dimensions() != image_b.dimensions() {
         let max_width = image_a.width().max(image_b.width());
         let max_height = image_a.height().max(image_b.height());
 
@@ -265,11 +252,103 @@ fn compare(path_a: &Path, path_b: &Path) -> Result<Similarity, ImDirDiffError> {
         let mut enlarged_b = image::ImageBuffer::new(max_width, max_height);
         overlay(&mut enlarged_b, &image_b, 0, 0);
 
-        return image_compare::rgb_hybrid_compare(&enlarged_a, &enlarged_b)
-            .map_err(ImDirDiffError::CompareError);
+        image_compare::rgb_hybrid_compare(&enlarged_a, &enlarged_b)
+            .map_err(ImDirDiffError::CompareError)?
+    } else {
+        image_compare::rgb_hybrid_compare(&image_a, &image_b)
+            .map_err(ImDirDiffError::CompareError)?
+    };
+
+    if GENERATE_REPORT {
+        copy_report_image(&image_path_a, subpath, Path::new("a"))?;
+        copy_report_image(&image_path_b, subpath, Path::new("b"))?;
+
+        let image_path_diff: PathBuf = [Path::new(REPORT_PATH), Path::new("diff"), subpath]
+            .iter()
+            .collect();
+
+        fs::create_dir_all(image_path_diff.with_file_name(""))
+            .map_err(ImDirDiffError::ReportIoError)?;
+
+        let color_map = similarity.image.to_color_map();
+        color_map
+            .save(&image_path_diff)
+            .map_err(ImDirDiffError::ReportImageError)?;
+
+        color_map
+            .resize(THUMB_WIDTH, THUMB_HEIGHT, FilterType::Triangle)
+            .save(image_path_diff.with_extension(THUMB_EXTENSION))
+            .map_err(ImDirDiffError::ReportImageError)?;
     }
 
-    image_compare::rgb_hybrid_compare(&image_a, &image_b).map_err(ImDirDiffError::CompareError)
+    Ok(similarity.score)
+}
+
+fn compare_flip(path_a: &Path, path_b: &Path, subpath: &Path) -> Result<f64, ImDirDiffError> {
+    let image_path_a: PathBuf = [path_a, subpath].iter().collect();
+    let image_path_b: PathBuf = [path_b, subpath].iter().collect();
+
+    let image_diff_dir: PathBuf = [
+        Path::new(REPORT_PATH),
+        Path::new("diff"),
+        subpath.parent().unwrap(),
+    ]
+    .iter()
+    .collect();
+
+    // TODO I think it is possible to disable diff image saving if we are not generating
+    // reports.
+
+    let output = Command::new("flip")
+        .args([
+            "-r",
+            image_path_a.to_str().unwrap(),
+            "-t",
+            image_path_b.to_str().unwrap(),
+            "-d",
+            image_diff_dir.to_str().unwrap(),
+            "-b",
+            subpath
+                .with_extension("")
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+        ])
+        .output()
+        .map_err(|_| ImDirDiffError::FlipError)?;
+
+    let stdout =
+        String::from_utf8(output.stdout).map_err(|_| ImDirDiffError::FlipOutputParseError)?;
+
+    let caps = RE_FLIP
+        .captures(&stdout)
+        .ok_or(ImDirDiffError::FlipOutputParseError)?;
+
+    let similarity = caps
+        .get(1)
+        .ok_or(ImDirDiffError::FlipOutputParseError)?
+        .as_str()
+        .parse()
+        .map_err(|_| ImDirDiffError::FlipOutputParseError)?;
+
+    if GENERATE_REPORT {
+        copy_report_image(&image_path_a, subpath, Path::new("a"))?;
+        copy_report_image(&image_path_b, subpath, Path::new("b"))?;
+
+        let image_path_diff: PathBuf = [image_diff_dir, subpath.file_name().unwrap().into()]
+            .iter()
+            .collect();
+
+        let image_diff = image::open(&image_path_diff).map_err(ImDirDiffError::ReportImageError)?;
+
+        image_diff
+            .resize(THUMB_WIDTH, THUMB_HEIGHT, FilterType::Triangle)
+            .save(image_path_diff.with_extension(THUMB_EXTENSION))
+            .map_err(ImDirDiffError::ReportImageError)?;
+    }
+
+    Ok(similarity)
 }
 
 fn relative_image_paths(dir_path: &Path) -> HashSet<PathBuf> {
@@ -307,6 +386,8 @@ enum ImDirDiffError {
     DirIoError(std::io::Error),
     ImageError(image::ImageError),
     CompareError(image_compare::CompareError),
+    FlipError,
+    FlipOutputParseError,
     ReportIoError(std::io::Error),
     ReportImageError(image::ImageError),
 }
@@ -318,6 +399,8 @@ impl Display for ImDirDiffError {
             Self::DirIoError(ref e) => write!(f, "{}", e),
             Self::ImageError(ref e) => write!(f, "{}", e),
             Self::CompareError(ref e) => write!(f, "{}", e),
+            Self::FlipError => write!(f, "Error running flip."),
+            Self::FlipOutputParseError => write!(f, "Error parsing flip output."),
             Self::ReportIoError(ref e) => write!(f, "{}", e),
             Self::ReportImageError(ref e) => write!(f, "{}", e),
         }
