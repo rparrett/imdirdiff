@@ -325,7 +325,7 @@ fn compare_flip(path_a: &Path, path_b: &Path, subpath: &Path) -> Result<f64, ImD
         .captures(&stdout)
         .ok_or(ImDirDiffError::FlipOutputParseError)?;
 
-    let similarity = caps
+    let similarity: f64 = caps
         .get(1)
         .ok_or(ImDirDiffError::FlipOutputParseError)?
         .as_str()
@@ -348,7 +348,9 @@ fn compare_flip(path_a: &Path, path_b: &Path, subpath: &Path) -> Result<f64, ImD
             .map_err(ImDirDiffError::ReportImageError)?;
     }
 
-    Ok(similarity)
+    // TODO is this right? 0.0 is definitely "they are the same" but
+    // I don't know what the maximum value is.
+    Ok(1.0 - similarity)
 }
 
 fn relative_image_paths(dir_path: &Path) -> HashSet<PathBuf> {
